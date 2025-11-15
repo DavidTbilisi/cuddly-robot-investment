@@ -3,19 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Investment Projection Simulator</title>
+  <title>Investment Projection Simulator — Table Only</title>
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Chart.js CDN (UMD for global Chart) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--grid:#1f2937}
     html,body{height:100%}
     body{margin:0;background:linear-gradient(180deg,#0b1020,#0c1226);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
     .header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
     h1{font-size:24px;margin:0}
-    .grid{display:grid;grid-template-columns:1.2fr 2fr;gap:16px}
+    .grid{display:grid;grid-template-columns:1fr;gap:16px}
     .card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:16px;backdrop-filter: blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.25)}
     .controls{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
     .field{display:flex;flex-direction:column;gap:6px}
@@ -35,9 +33,6 @@
     tbody tr td:last-child{border-right:1px solid #22314b;border-top-right-radius:10px;border-bottom-right-radius:10px}
     .neg{color:var(--danger)}
     .pos{color:var(--accent)}
-    .charts{display:grid;grid-template-columns:1fr;gap:16px}
-    canvas{display:block;width:100%}
-    @media (min-width: 1100px){.charts{grid-template-columns:1fr 1fr}}
     .footer{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .note{font-size:12px;color:var(--muted)}
     .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;background:#0b1222;border:1px solid #22314b;padding:2px 6px;border-radius:6px;color:#cbd5e1}
@@ -105,49 +100,39 @@
         </div>
       </div>
 
-      <!-- Charts -->
-      <div class="card">
-        <h3 style="margin-top:0">Charts</h3>
-        <div class="charts">
-          <canvas id="capitalChart" height="220"></canvas>
-          <canvas id="flowsChart" height="220"></canvas>
-          <canvas id="interestChart" height="220"></canvas>
-        </div>
+      <!-- Table Only -->
+      <div class="card" style="margin-top:0">
+        <h3 style="margin-top:0">Projection Table</h3>
+        <div class="subtle" style="margin-bottom:8px">All values are annualized where noted. Interest uses simple annual accrual. Charts are disabled in this mode.</div>
+        <table>
+          <thead>
+            <tr>
+              <th>Year</th>
+              <th>Monthly Income</th>
+              <th>Monthly Expenses</th>
+              <th>Delta (monthly)</th>
+              <th>Contrib. (annual)</th>
+              <th>Capital (last year)</th>
+              <th>% on last year's capital</th>
+              <th>% on current-year contributions</th>
+              <th>Final capital</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in rows" :key="row.year">
+              <td>{{ row.year }}</td>
+              <td>{{ fmt(row.incomeMonthly) }}</td>
+              <td :class="row.expensesMonthly>row.incomeMonthly ? 'neg' : ''">{{ fmt(row.expensesMonthly) }}</td>
+              <td :class="row.deltaMonthly<0 ? 'neg' : 'pos'">{{ fmt(row.deltaMonthly) }}</td>
+              <td :class="row.contribution<0 ? 'neg' : 'pos'">{{ fmt(row.contribution) }}</td>
+              <td>{{ fmt(row.capitalStart) }}</td>
+              <td :class="row.interestOnStart<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnStart) }}</td>
+              <td :class="row.interestOnContribution<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnContribution) }}</td>
+              <td :class="row.capitalEnd<0 ? 'neg' : 'pos'">{{ fmt(row.capitalEnd) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </div>
-
-    <!-- Table -->
-    <div class="card" style="margin-top:16px">
-      <h3 style="margin-top:0">Projection Table</h3>
-      <div class="subtle" style="margin-bottom:8px">All values are annualized where noted. Interest uses simple annual accrual.</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Year</th>
-            <th>Monthly Income</th>
-            <th>Monthly Expenses</th>
-            <th>Delta (monthly)</th>
-            <th>Contrib. (annual)</th>
-            <th>Capital (last year)</th>
-            <th>% on last year's capital</th>
-            <th>% on current-year contributions</th>
-            <th>Final capital</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in rows" :key="row.year">
-            <td>{{ row.year }}</td>
-            <td>{{ fmt(row.incomeMonthly) }}</td>
-            <td :class="row.expensesMonthly>row.incomeMonthly ? 'neg' : ''">{{ fmt(row.expensesMonthly) }}</td>
-            <td :class="row.deltaMonthly<0 ? 'neg' : 'pos'">{{ fmt(row.deltaMonthly) }}</td>
-            <td :class="row.contribution<0 ? 'neg' : 'pos'">{{ fmt(row.contribution) }}</td>
-            <td>{{ fmt(row.capitalStart) }}</td>
-            <td :class="row.interestOnStart<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnStart) }}</td>
-            <td :class="row.interestOnContribution<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnContribution) }}</td>
-            <td :class="row.capitalEnd<0 ? 'neg' : 'pos'">{{ fmt(row.capitalEnd) }}</td>
-          </tr>
-        </tbody>
-      </table>
     </div>
 
     <details class="tests card" style="margin-top:16px">
@@ -158,12 +143,7 @@
 
   <script>
     'use strict';
-    const { createApp, watch, ref, computed, onMounted, nextTick } = Vue;
-
-    // Ensure all Chart.js components are registered (Chart.js v4 tree-shaking safe)
-    if (window.Chart && typeof Chart.register === 'function' && Array.isArray(Chart.registerables)) {
-      try { Chart.register(...Chart.registerables); } catch (e) { console.warn('Chart registerables error:', e); }
-    }
+    const { createApp, watch, ref, computed } = Vue;
 
     function formatCurrency(x, currency){
       const f = new Intl.NumberFormat(undefined,{ style:'currency', currency: currency || 'USD', maximumFractionDigits: 0});
@@ -186,75 +166,7 @@
 
         const rows = computed(()=>buildRows(params.value));
 
-        // Charts refs
-        let capitalChart, flowsChart, interestChart;
-
-        onMounted(async ()=>{
-          const labels = rows.value.map(r=>`Y${r.year}`);
-          try {
-            await nextTick();
-            const capCtx = document.getElementById('capitalChart')?.getContext('2d');
-            const flowCtx = document.getElementById('flowsChart')?.getContext('2d');
-            const intCtx  = document.getElementById('interestChart')?.getContext('2d');
-            if (!capCtx || !flowCtx || !intCtx) throw new Error('Canvas 2D context not available');
-
-            capitalChart = new Chart(capCtx,{
-              type:'line',
-              data:{ labels, datasets:[{ label:'Final Capital', data: rows.value.map(r=>safeNumber(r.capitalEnd)) }] },
-              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ grid:{ color:'rgba(255,255,255,0.05)'}}}}
-            });
-
-            flowsChart = new Chart(flowCtx,{
-              type:'bar',
-              data:{ labels, datasets:[
-                { label:'Annual Contributions', data: rows.value.map(r=>safeNumber(r.contribution)) },
-                { label:'Interest (total)', data: rows.value.map(r=>safeNumber(r.interestOnStart + r.interestOnContribution)) },
-              ]},
-              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
-            });
-
-            interestChart = new Chart(intCtx,{
-              type:'bar',
-              data:{ labels, datasets:[
-                { label:"% on last year's capital", data: rows.value.map(r=>safeNumber(r.interestOnStart)) },
-                { label:'% on current-year contributions', data: rows.value.map(r=>safeNumber(r.interestOnContribution)) },
-              ]},
-              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
-            });
-          } catch (e) {
-            reportRuntimeError(e);
-          }
-
-          // Run dev tests on mount
-          const results = runTests();
-          renderTestResults(results);
-          if (console && console.table) console.table(results.map(r=>({name:r.name, pass:r.pass, message:r.message})));
-        });
-
-        watch(params, ()=>{
-          const labels = rows.value.map(r=>`Y${r.year}`);
-          try {
-            if(capitalChart){
-              capitalChart.data.labels = labels;
-              capitalChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.capitalEnd));
-              capitalChart.update();
-            }
-            if(flowsChart){
-              flowsChart.data.labels = labels;
-              flowsChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.contribution));
-              flowsChart.data.datasets[1].data = rows.value.map(r=>safeNumber(r.interestOnStart + r.interestOnContribution));
-              flowsChart.update();
-            }
-            if(interestChart){
-              interestChart.data.labels = labels;
-              interestChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.interestOnStart));
-              interestChart.data.datasets[1].data = rows.value.map(r=>safeNumber(r.interestOnContribution));
-              interestChart.update();
-            }
-          } catch (e) {
-            reportRuntimeError(e);
-          }
-        },{ deep:true });
+        watch(params, ()=>{ /* table auto-updates via computed */ }, {deep:true});
 
         function resetToDefaults(){
           params.value = { startingCapital: 0, incomeMonthly: 5589, expensesMonthly: 4000, incomeGrowthPct: 10, returnPct: 15, inflationPct: 5, years: 30, contributionInterestFactor: 1 };
@@ -330,15 +242,14 @@
     }
 
     function round2(x){ return Math.round((x + Number.EPSILON) * 100) / 100; }
-    function safeNumber(x){ return Number.isFinite(x) ? x : 0; }
 
     // ------------------
-    // Developer Test Kit (do not change existing tests; add more below)
+    // Developer Test Kit (kept; chart tests replaced with table-only checks)
     // ------------------
     function runTests(){
       const tests = [];
 
-      // Test 1: Defaults, 1 year, mid-year 0.5 (unchanged original test)
+      // Test 1: Defaults, 1 year, mid-year 0.5 (kept from original set)
       tests.push(assert('Year 1 basic math (defaults)', ()=>{
         const r = buildRows({ startingCapital:0, incomeMonthly:5589, expensesMonthly:4000, incomeGrowthPct:10, returnPct:15, inflationPct:5, years:1, contributionInterestFactor:0.5 });
         const y1 = r[0];
@@ -354,15 +265,14 @@
         near(y1.capitalEnd, expectCapitalEnd);
       }));
 
-      // Test 2: Negative delta causes withdrawals (original semantic)
+      // Test 2: Negative delta causes withdrawals (now floored at 0)
       tests.push(assert('Negative delta withdraws from capital', ()=>{
         const r = buildRows({ startingCapital:5000, incomeMonthly:1000, expensesMonthly:2000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1, contributionInterestFactor:0.5 });
         const y1 = r[0];
-        // With floor at 0, result cannot be below 0
         if (y1.capitalEnd < 0) throw new Error('Capital went below zero despite floor');
       }));
 
-      // Test 3: Growth and inflation applied to year 2 (original)
+      // Test 3: Growth and inflation applied to year 2
       tests.push(assert('Year 2 growth/inflation application', ()=>{
         const r = buildRows({ startingCapital:0, incomeMonthly:5589, expensesMonthly:4000, incomeGrowthPct:10, returnPct:0, inflationPct:5, years:2, contributionInterestFactor:0 });
         const y2 = r[1];
@@ -370,7 +280,7 @@
         near(y2.expensesMonthly, 4000*1.05);
       }));
 
-      // Test 4: CSV uses \n and has correct number of lines for 1-year export (original)
+      // Test 4: CSV uses \n and has correct number of lines for 1-year export
       tests.push(assert('CSV newline separator correctness', ()=>{
         const header = ['a','b'];
         const lines = [header.join(',')].concat(['1,2']);
@@ -397,13 +307,11 @@
         if(!pill.textContent.includes('USD')) throw new Error('Currency not rendered');
       }));
 
-      tests.push(assert('Charts canvas contexts exist', ()=>{
-        const canvases = ['capitalChart','flowsChart','interestChart'].map(id=>document.getElementById(id));
-        if (canvases.some(c=>!c)) throw new Error('One or more canvases missing');
-        if (canvases.some(c=>!c.getContext('2d'))) throw new Error('Canvas context missing');
+      tests.push(assert('No chart canvases present (table-only mode)', ()=>{
+        const canvases = document.querySelectorAll('canvas');
+        if (canvases.length !== 0) throw new Error('Found unexpected canvas elements');
       }));
 
-      // New tests per user decisions
       tests.push(assert('Capital floors at 0 when deeply negative', ()=>{
         const r = buildRows({ startingCapital:1000, incomeMonthly:0, expensesMonthly:5000, incomeGrowthPct:0, returnPct:0, inflationPct:0, years:1, contributionInterestFactor:1 });
         const y1 = r[0];
@@ -425,7 +333,6 @@
         });
       }));
 
-      // Additional: handles NaN/blank inputs gracefully
       tests.push(assert('Coerces NaN/blank inputs to finite numbers', ()=>{
         const r = buildRows({ startingCapital:NaN, incomeMonthly:'', expensesMonthly:undefined, incomeGrowthPct:'', returnPct:'', inflationPct:null, years:'', contributionInterestFactor:'' });
         if (r.length < 1) throw new Error('No rows produced');
@@ -458,12 +365,10 @@
       if(Math.abs(actual-expected) > eps) throw new Error(`Expected ${expected}, got ${actual}`);
     }
 
-    function reportRuntimeError(e){
+    // Show any runtime error in the test list for visibility
+    window.addEventListener('error', (e)=>{
       try{ const ul=document.getElementById('test-results'); if(!ul) return; const li=document.createElement('li'); li.textContent = `✖ Runtime error: ${e.message}`; li.className = 'test-fail'; ul.prepend(li);}catch(_){}
-    }
-
-    window.addEventListener('error', (e)=>{ reportRuntimeError(e.error || e); });
-    window.addEventListener('unhandledrejection', (e)=>{ reportRuntimeError(e.reason || e); });
+    });
   </script>
 </body>
 </html>
