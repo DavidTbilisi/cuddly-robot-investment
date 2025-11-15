@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investment Projection Simulator</title>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--grid:#1f2937}
+    html,body{height:100%}
+    body{margin:0;background:linear-gradient(180deg,#0b1020,#0c1226);color:var(--text);font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+    .container{max-width:1200px;margin:24px auto;padding:0 16px}
+    .header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
+    h1{font-size:24px;margin:0}
+    .grid{display:grid;grid-template-columns:1.2fr 2fr;gap:16px}
+    .card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:16px;padding:16px;backdrop-filter: blur(6px);box-shadow:0 6px 20px rgba(0,0,0,0.25)}
+    .controls{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+    .field{display:flex;flex-direction:column;gap:6px}
+    .field label{font-size:12px;color:var(--muted)}
+    .field input,.field select{background:#0b1222;color:var(--text);border:1px solid #22314b;border-radius:10px;padding:10px 12px;font-size:14px;outline:none}
+    .field input:focus{border-color:#3b82f6}
+    .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+    .pill{padding:6px 10px;border-radius:999px;background:#0b1222;border:1px solid #22314b;color:var(--muted);font-size:12px}
+    .btn{background:linear-gradient(135deg,#2563eb,#22c55e);border:none;color:white;padding:10px 12px;border-radius:12px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:#0b1222;border:1px solid #22314b;color:var(--text)}
+    .subtle{color:var(--muted);font-size:12px}
+    table{width:100%;border-collapse:separate;border-spacing:0 6px}
+    thead th{font-size:12px;color:var(--muted);text-align:left;padding:8px}
+    tbody td{background:#0b1222;border:1px solid #22314b;border-left:none;border-right:none;padding:10px 8px}
+    tbody tr{border-radius:10px}
+    tbody tr td:first-child{border-left:1px solid #22314b;border-top-left-radius:10px;border-bottom-left-radius:10px}
+    tbody tr td:last-child{border-right:1px solid #22314b;border-top-right-radius:10px;border-bottom-right-radius:10px}
+    .neg{color:var(--danger)}
+    .pos{color:var(--accent)}
+    .charts{display:grid;grid-template-columns:1fr;gap:16px}
+    @media (min-width: 1100px){.charts{grid-template-columns:1fr 1fr}}
+    .footer{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .note{font-size:12px;color:var(--muted)}
+    .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;background:#0b1222;border:1px solid #22314b;padding:2px 6px;border-radius:6px;color:#cbd5e1}
+  </style>
+</head>
+<body>
+  <div id="app" class="container">
+    <div class="header">
+      <h1>Investment Projection Simulator</h1>
+      <div class="row">
+        <span class="pill">Currency: {{ currency }}</span>
+        <button class="btn secondary" @click="resetToDefaults">Reset</button>
+        <button class="btn" @click="downloadCSV">Download CSV</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Controls -->
+      <div class="card">
+        <h3 style="margin-top:0">Inputs</h3>
+        <div class="controls">
+          <div class="field">
+            <label>Starting Capital</label>
+            <input type="number" v-model.number="params.startingCapital" min="0" step="100" />
+          </div>
+          <div class="field">
+            <label>Monthly Income (now)</label>
+            <input type="number" v-model.number="params.incomeMonthly" min="0" step="1" />
+          </div>
+          <div class="field">
+            <label>Monthly Expenses (now)</label>
+            <input type="number" v-model.number="params.expensesMonthly" min="0" step="1" />
+          </div>
+          <div class="field">
+            <label>Income Growth / year (%)</label>
+            <input type="number" v-model.number="params.incomeGrowthPct" min="-100" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Investment Return / year (%)</label>
+            <input type="number" v-model.number="params.returnPct" min="-100" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Inflation (affects expenses) / year (%)</label>
+            <input type="number" v-model.number="params.inflationPct" min="-100" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Projection Years</label>
+            <input type="number" v-model.number="params.years" min="1" max="60" />
+          </div>
+          <div class="field">
+            <label>Assumption: interest on current-year contributions</label>
+            <select v-model.number="params.contributionInterestFactor">
+              <option :value="0">0× (end of year)</option>
+              <option :value="0.5">0.5× (mid-year average)</option>
+              <option :value="1">1× (start of year)</option>
+            </select>
+          </div>
+        </div>
+        <div class="footer">
+          <span class="note">Delta = Income − Expenses (monthly). Contributions = 12 × Delta.</span>
+          <span class="note">Negative delta withdraws from capital.</span>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="card">
+        <h3 style="margin-top:0">Charts</h3>
+        <div class="charts">
+          <canvas id="capitalChart" height="220"></canvas>
+          <canvas id="flowsChart" height="220"></canvas>
+          <canvas id="interestChart" height="220"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="card" style="margin-top:16px">
+      <h3 style="margin-top:0">Projection Table</h3>
+      <div class="subtle" style="margin-bottom:8px">All values are annualized where noted. Interest uses simple annual accrual.</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Year</th>
+            <th>Monthly Income</th>
+            <th>Monthly Expenses</th>
+            <th>Delta (monthly)</th>
+            <th>Contrib. (annual)</th>
+            <th>Capital (last year)</th>
+            <th>% on last year's capital</th>
+            <th>% on current-year contributions</th>
+            <th>Final capital</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in rows" :key="row.year">
+            <td>{{ row.year }}</td>
+            <td>{{ fmt(row.incomeMonthly) }}</td>
+            <td :class="row.expensesMonthly>row.incomeMonthly ? 'neg' : ''">{{ fmt(row.expensesMonthly) }}</td>
+            <td :class="row.deltaMonthly<0 ? 'neg' : 'pos'">{{ fmt(row.deltaMonthly) }}</td>
+            <td :class="row.contribution<0 ? 'neg' : 'pos'">{{ fmt(row.contribution) }}</td>
+            <td>{{ fmt(row.capitalStart) }}</td>
+            <td :class="row.interestOnStart<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnStart) }}</td>
+            <td :class="row.interestOnContribution<0 ? 'neg' : 'pos'">{{ fmt(row.interestOnContribution) }}</td>
+            <td :class="row.capitalEnd<0 ? 'neg' : 'pos'">{{ fmt(row.capitalEnd) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const { createApp, watch, ref, computed, onMounted } = Vue;
+
+    function formatCurrency(x, currency){
+      const f = new Intl.NumberFormat(undefined,{ style:'currency', currency: currency || 'USD', maximumFractionDigits: 0});
+      return f.format(x);
+    }
+
+    createApp({
+      setup(){
+        const currency = ref('USD');
+        const params = ref({
+          startingCapital: 0,
+          incomeMonthly: 5589,
+          expensesMonthly: 4000,
+          incomeGrowthPct: 10,
+          returnPct: 15,
+          inflationPct: 5,
+          years: 30,
+          contributionInterestFactor: 0.5,
+        });
+
+        const rows = computed(()=>buildRows(params.value));
+
+        // Charts refs
+        let capitalChart, flowsChart, interestChart;
+
+        onMounted(()=>{
+          // Build charts initially
+          const labels = rows.value.map(r=>`Y${r.year}`);
+          capitalChart = new Chart(document.getElementById('capitalChart').getContext('2d'),{
+            type:'line',
+            data:{ labels, datasets:[{ label:'Final Capital', data: rows.value.map(r=>r.capitalEnd) }] },
+            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ grid:{ color:'rgba(255,255,255,0.05)'}}}}
+          });
+
+          flowsChart = new Chart(document.getElementById('flowsChart').getContext('2d'),{
+            type:'bar',
+            data:{ labels, datasets:[
+              { label:'Annual Contributions', data: rows.value.map(r=>r.contribution) },
+              { label:'Interest (total)', data: rows.value.map(r=>r.interestOnStart + r.interestOnContribution) },
+            ]},
+            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
+          });
+
+          interestChart = new Chart(document.getElementById('interestChart').getContext('2d'),{
+            type:'bar',
+            data:{ labels, datasets:[
+              { label:"% on last year's capital", data: rows.value.map(r=>r.interestOnStart) },
+              { label:'% on current-year contributions', data: rows.value.map(r=>r.interestOnContribution) },
+            ]},
+            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
+          });
+        });
+
+        watch(params, ()=>{
+          const labels = rows.value.map(r=>`Y${r.year}`);
+          if(capitalChart){
+            capitalChart.data.labels = labels;
+            capitalChart.data.datasets[0].data = rows.value.map(r=>r.capitalEnd);
+            capitalChart.update();
+          }
+          if(flowsChart){
+            flowsChart.data.labels = labels;
+            flowsChart.data.datasets[0].data = rows.value.map(r=>r.contribution);
+            flowsChart.data.datasets[1].data = rows.value.map(r=>r.interestOnStart + r.interestOnContribution);
+            flowsChart.update();
+          }
+          if(interestChart){
+            interestChart.data.labels = labels;
+            interestChart.data.datasets[0].data = rows.value.map(r=>r.interestOnStart);
+            interestChart.data.datasets[1].data = rows.value.map(r=>r.interestOnContribution);
+            interestChart.update();
+          }
+        },{ deep:true });
+
+        function resetToDefaults(){
+          params.value = { startingCapital: 0, incomeMonthly: 5589, expensesMonthly: 4000, incomeGrowthPct: 10, returnPct: 15, inflationPct: 5, years: 30, contributionInterestFactor: 0.5 };
+        }
+
+        function fmt(n){ return formatCurrency(n, currency.value); }
+
+        function downloadCSV(){
+          const header = [
+            'Year','Monthly Income','Monthly Expenses','Delta (monthly)','Contribution (annual)','Capital last year','% on last year capital','% on current-year contributions','Final capital'
+          ];
+          const lines = [header.join(',')].concat(rows.value.map(r=>[
+            r.year, r.incomeMonthly, r.expensesMonthly, r.deltaMonthly, r.contribution, r.capitalStart, r.interestOnStart, r.interestOnContribution, r.capitalEnd
+          ].join(',')));
+          const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href=url; a.download='investment_projection.csv'; a.click();
+          URL.revokeObjectURL(url);
+        }
+
+        return { params, rows, resetToDefaults, fmt, currency, downloadCSV };
+      }
+    }).mount('#app');
+
+    function buildRows(p){
+      const rows=[];
+      let capitalStart = Number(p.startingCapital||0);
+      let incomeMonthly = Number(p.incomeMonthly||0);
+      let expensesMonthly = Number(p.expensesMonthly||0);
+      const gIncome = Number(p.incomeGrowthPct||0)/100;
+      const r = Number(p.returnPct||0)/100;
+      const infl = Number(p.inflationPct||0)/100;
+      const years = Math.max(1, Math.min(60, Math.floor(p.years||1)));
+      const k = Number(p.contributionInterestFactor||0); // 0 (end), 0.5 (mid), 1 (start)
+
+      for(let y=1;y<=years;y++){
+        const deltaMonthly = incomeMonthly - expensesMonthly; // monthly
+        const contribution = deltaMonthly * 12; // annual inflow (can be negative)
+
+        const interestOnStart = capitalStart * r;
+        const interestOnContribution = contribution * r * k; // mid-year default
+
+        const capitalEnd = capitalStart + contribution + interestOnStart + interestOnContribution;
+
+        rows.push({
+          year:y,
+          incomeMonthly: round2(incomeMonthly),
+          expensesMonthly: round2(expensesMonthly),
+          deltaMonthly: round2(deltaMonthly),
+          contribution: round2(contribution),
+          capitalStart: round2(capitalStart),
+          interestOnStart: round2(interestOnStart),
+          interestOnContribution: round2(interestOnContribution),
+          capitalEnd: round2(capitalEnd)
+        });
+
+        // Next year updates
+        capitalStart = capitalEnd;
+        incomeMonthly = incomeMonthly * (1 + gIncome);
+        expensesMonthly = expensesMonthly * (1 + infl);
+      }
+      return rows;
+    }
+
+    function round2(x){ return Math.round((x + Number.EPSILON) * 100) / 100; }
+  </script>
+</body>
+</html>
