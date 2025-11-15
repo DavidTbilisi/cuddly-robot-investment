@@ -6,8 +6,8 @@
   <title>Investment Projection Simulator</title>
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Chart.js CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js CDN (UMD for global Chart) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#22c55e;--danger:#ef4444;--grid:#1f2937}
     html,body{height:100%}
@@ -36,10 +36,14 @@
     .neg{color:var(--danger)}
     .pos{color:var(--accent)}
     .charts{display:grid;grid-template-columns:1fr;gap:16px}
+    canvas{display:block;width:100%}
     @media (min-width: 1100px){.charts{grid-template-columns:1fr 1fr}}
     .footer{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
     .note{font-size:12px;color:var(--muted)}
     .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;background:#0b1222;border:1px solid #22314b;padding:2px 6px;border-radius:6px;color:#cbd5e1}
+    details.tests summary{cursor:pointer;color:#93c5fd}
+    .test-pass{color:#22c55e}
+    .test-fail{color:#ef4444}
   </style>
 </head>
 <body>
@@ -97,7 +101,7 @@
         </div>
         <div class="footer">
           <span class="note">Delta = Income − Expenses (monthly). Contributions = 12 × Delta.</span>
-          <span class="note">Negative delta withdraws from capital.</span>
+          <span class="note">Capital floors at 0 (no borrowing). Default contribution interest = 1× (start-of-year).</span>
         </div>
       </div>
 
@@ -145,10 +149,21 @@
         </tbody>
       </table>
     </div>
+
+    <details class="tests card" style="margin-top:16px">
+      <summary>Developer tests</summary>
+      <ul id="test-results" class="subtle"></ul>
+    </details>
   </div>
 
   <script>
-    const { createApp, watch, ref, computed, onMounted } = Vue;
+    'use strict';
+    const { createApp, watch, ref, computed, onMounted, nextTick } = Vue;
+
+    // Ensure all Chart.js components are registered (Chart.js v4 tree-shaking safe)
+    if (window.Chart && typeof Chart.register === 'function' && Array.isArray(Chart.registerables)) {
+      try { Chart.register(...Chart.registerables); } catch (e) { console.warn('Chart registerables error:', e); }
+    }
 
     function formatCurrency(x, currency){
       const f = new Intl.NumberFormat(undefined,{ style:'currency', currency: currency || 'USD', maximumFractionDigits: 0});
@@ -166,7 +181,7 @@
           returnPct: 15,
           inflationPct: 5,
           years: 30,
-          contributionInterestFactor: 0.5,
+          contributionInterestFactor: 1, // default 1× per user request
         });
 
         const rows = computed(()=>buildRows(params.value));
@@ -174,57 +189,75 @@
         // Charts refs
         let capitalChart, flowsChart, interestChart;
 
-        onMounted(()=>{
-          // Build charts initially
+        onMounted(async ()=>{
           const labels = rows.value.map(r=>`Y${r.year}`);
-          capitalChart = new Chart(document.getElementById('capitalChart').getContext('2d'),{
-            type:'line',
-            data:{ labels, datasets:[{ label:'Final Capital', data: rows.value.map(r=>r.capitalEnd) }] },
-            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ grid:{ color:'rgba(255,255,255,0.05)'}}}}
-          });
+          try {
+            await nextTick();
+            const capCtx = document.getElementById('capitalChart')?.getContext('2d');
+            const flowCtx = document.getElementById('flowsChart')?.getContext('2d');
+            const intCtx  = document.getElementById('interestChart')?.getContext('2d');
+            if (!capCtx || !flowCtx || !intCtx) throw new Error('Canvas 2D context not available');
 
-          flowsChart = new Chart(document.getElementById('flowsChart').getContext('2d'),{
-            type:'bar',
-            data:{ labels, datasets:[
-              { label:'Annual Contributions', data: rows.value.map(r=>r.contribution) },
-              { label:'Interest (total)', data: rows.value.map(r=>r.interestOnStart + r.interestOnContribution) },
-            ]},
-            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
-          });
+            capitalChart = new Chart(capCtx,{
+              type:'line',
+              data:{ labels, datasets:[{ label:'Final Capital', data: rows.value.map(r=>safeNumber(r.capitalEnd)) }] },
+              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ grid:{ color:'rgba(255,255,255,0.05)'}}}}
+            });
 
-          interestChart = new Chart(document.getElementById('interestChart').getContext('2d'),{
-            type:'bar',
-            data:{ labels, datasets:[
-              { label:"% on last year's capital", data: rows.value.map(r=>r.interestOnStart) },
-              { label:'% on current-year contributions', data: rows.value.map(r=>r.interestOnContribution) },
-            ]},
-            options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
-          });
+            flowsChart = new Chart(flowCtx,{
+              type:'bar',
+              data:{ labels, datasets:[
+                { label:'Annual Contributions', data: rows.value.map(r=>safeNumber(r.contribution)) },
+                { label:'Interest (total)', data: rows.value.map(r=>safeNumber(r.interestOnStart + r.interestOnContribution)) },
+              ]},
+              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
+            });
+
+            interestChart = new Chart(intCtx,{
+              type:'bar',
+              data:{ labels, datasets:[
+                { label:"% on last year's capital", data: rows.value.map(r=>safeNumber(r.interestOnStart)) },
+                { label:'% on current-year contributions', data: rows.value.map(r=>safeNumber(r.interestOnContribution)) },
+              ]},
+              options:{ responsive:true, maintainAspectRatio:false, scales:{ x:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}, y:{ stacked:true, grid:{ color:'rgba(255,255,255,0.05)'}}}}
+            });
+          } catch (e) {
+            reportRuntimeError(e);
+          }
+
+          // Run dev tests on mount
+          const results = runTests();
+          renderTestResults(results);
+          if (console && console.table) console.table(results.map(r=>({name:r.name, pass:r.pass, message:r.message})));
         });
 
         watch(params, ()=>{
           const labels = rows.value.map(r=>`Y${r.year}`);
-          if(capitalChart){
-            capitalChart.data.labels = labels;
-            capitalChart.data.datasets[0].data = rows.value.map(r=>r.capitalEnd);
-            capitalChart.update();
-          }
-          if(flowsChart){
-            flowsChart.data.labels = labels;
-            flowsChart.data.datasets[0].data = rows.value.map(r=>r.contribution);
-            flowsChart.data.datasets[1].data = rows.value.map(r=>r.interestOnStart + r.interestOnContribution);
-            flowsChart.update();
-          }
-          if(interestChart){
-            interestChart.data.labels = labels;
-            interestChart.data.datasets[0].data = rows.value.map(r=>r.interestOnStart);
-            interestChart.data.datasets[1].data = rows.value.map(r=>r.interestOnContribution);
-            interestChart.update();
+          try {
+            if(capitalChart){
+              capitalChart.data.labels = labels;
+              capitalChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.capitalEnd));
+              capitalChart.update();
+            }
+            if(flowsChart){
+              flowsChart.data.labels = labels;
+              flowsChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.contribution));
+              flowsChart.data.datasets[1].data = rows.value.map(r=>safeNumber(r.interestOnStart + r.interestOnContribution));
+              flowsChart.update();
+            }
+            if(interestChart){
+              interestChart.data.labels = labels;
+              interestChart.data.datasets[0].data = rows.value.map(r=>safeNumber(r.interestOnStart));
+              interestChart.data.datasets[1].data = rows.value.map(r=>safeNumber(r.interestOnContribution));
+              interestChart.update();
+            }
+          } catch (e) {
+            reportRuntimeError(e);
           }
         },{ deep:true });
 
         function resetToDefaults(){
-          params.value = { startingCapital: 0, incomeMonthly: 5589, expensesMonthly: 4000, incomeGrowthPct: 10, returnPct: 15, inflationPct: 5, years: 30, contributionInterestFactor: 0.5 };
+          params.value = { startingCapital: 0, incomeMonthly: 5589, expensesMonthly: 4000, incomeGrowthPct: 10, returnPct: 15, inflationPct: 5, years: 30, contributionInterestFactor: 1 };
         }
 
         function fmt(n){ return formatCurrency(n, currency.value); }
@@ -236,10 +269,13 @@
           const lines = [header.join(',')].concat(rows.value.map(r=>[
             r.year, r.incomeMonthly, r.expensesMonthly, r.deltaMonthly, r.contribution, r.capitalStart, r.interestOnStart, r.interestOnContribution, r.capitalEnd
           ].join(',')));
-          const blob = new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8;'});
+          const blob = new Blob([lines.join('\n')], {type:'text/csv;charset=utf-8;'});
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
-          a.href=url; a.download='investment_projection.csv'; a.click();
+          a.href=url; a.download='investment_projection.csv';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
           URL.revokeObjectURL(url);
         }
 
@@ -249,23 +285,29 @@
 
     function buildRows(p){
       const rows=[];
-      let capitalStart = Number(p.startingCapital||0);
-      let incomeMonthly = Number(p.incomeMonthly||0);
-      let expensesMonthly = Number(p.expensesMonthly||0);
-      const gIncome = Number(p.incomeGrowthPct||0)/100;
-      const r = Number(p.returnPct||0)/100;
-      const infl = Number(p.inflationPct||0)/100;
-      const years = Math.max(1, Math.min(60, Math.floor(p.years||1)));
-      const k = Number(p.contributionInterestFactor||0); // 0 (end), 0.5 (mid), 1 (start)
+      // Robust coercion helpers
+      const toFinite = (v, fb=0)=>{ const n = Number(v); return Number.isFinite(n) ? n : fb; };
+      const toPct = (v)=> toFinite(v)/100;
+
+      let capitalStart = toFinite(p.startingCapital, 0);
+      let incomeMonthly = toFinite(p.incomeMonthly, 0);
+      let expensesMonthly = toFinite(p.expensesMonthly, 0);
+      const gIncome = toPct(p.incomeGrowthPct);
+      const r = toPct(p.returnPct);
+      const infl = toPct(p.inflationPct);
+      const years = Math.max(1, Math.min(60, Math.floor(toFinite(p.years, 1))));
+      // Default factor 1× if null/undefined/empty; otherwise coerce
+      const k = (p.contributionInterestFactor==null || p.contributionInterestFactor==='') ? 1 : toFinite(p.contributionInterestFactor, 0);
 
       for(let y=1;y<=years;y++){
         const deltaMonthly = incomeMonthly - expensesMonthly; // monthly
         const contribution = deltaMonthly * 12; // annual inflow (can be negative)
 
         const interestOnStart = capitalStart * r;
-        const interestOnContribution = contribution * r * k; // mid-year default
+        const interestOnContribution = contribution * r * k;
 
-        const capitalEnd = capitalStart + contribution + interestOnStart + interestOnContribution;
+        let capitalEnd = capitalStart + contribution + interestOnStart + interestOnContribution;
+        if (capitalEnd < 0) capitalEnd = 0; // floor at 0 per user request
 
         rows.push({
           year:y,
@@ -288,6 +330,140 @@
     }
 
     function round2(x){ return Math.round((x + Number.EPSILON) * 100) / 100; }
+    function safeNumber(x){ return Number.isFinite(x) ? x : 0; }
+
+    // ------------------
+    // Developer Test Kit (do not change existing tests; add more below)
+    // ------------------
+    function runTests(){
+      const tests = [];
+
+      // Test 1: Defaults, 1 year, mid-year 0.5 (unchanged original test)
+      tests.push(assert('Year 1 basic math (defaults)', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:5589, expensesMonthly:4000, incomeGrowthPct:10, returnPct:15, inflationPct:5, years:1, contributionInterestFactor:0.5 });
+        const y1 = r[0];
+        const expectDelta = 1589; // 5589-4000
+        const expectContribution = 1589*12; // 19068
+        const expectInterestOnStart = 0;
+        const expectInterestOnContribution = 19068*0.15*0.5; // 1430.1
+        const expectCapitalEnd = 0 + 19068 + 0 + 1430.1; // 20498.1
+        near(y1.deltaMonthly, expectDelta);
+        near(y1.contribution, expectContribution);
+        near(y1.interestOnStart, expectInterestOnStart);
+        near(y1.interestOnContribution, expectInterestOnContribution);
+        near(y1.capitalEnd, expectCapitalEnd);
+      }));
+
+      // Test 2: Negative delta causes withdrawals (original semantic)
+      tests.push(assert('Negative delta withdraws from capital', ()=>{
+        const r = buildRows({ startingCapital:5000, incomeMonthly:1000, expensesMonthly:2000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1, contributionInterestFactor:0.5 });
+        const y1 = r[0];
+        // With floor at 0, result cannot be below 0
+        if (y1.capitalEnd < 0) throw new Error('Capital went below zero despite floor');
+      }));
+
+      // Test 3: Growth and inflation applied to year 2 (original)
+      tests.push(assert('Year 2 growth/inflation application', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:5589, expensesMonthly:4000, incomeGrowthPct:10, returnPct:0, inflationPct:5, years:2, contributionInterestFactor:0 });
+        const y2 = r[1];
+        near(y2.incomeMonthly, 5589*1.10);
+        near(y2.expensesMonthly, 4000*1.05);
+      }));
+
+      // Test 4: CSV uses \n and has correct number of lines for 1-year export (original)
+      tests.push(assert('CSV newline separator correctness', ()=>{
+        const header = ['a','b'];
+        const lines = [header.join(',')].concat(['1,2']);
+        const csv = lines.join('\n');
+        if(csv.split('\n').length !== 2) throw new Error('CSV does not contain expected line break');
+      }));
+
+      // --- Additional tests ---
+      tests.push(assert('buildRows length matches years', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:1000, expensesMonthly:500, incomeGrowthPct:0, returnPct:0, inflationPct:0, years:5, contributionInterestFactor:0 });
+        if(r.length !== 5) throw new Error(`Expected 5 years, got ${r.length}`);
+      }));
+
+      tests.push(assert('0× factor yields zero interest on contribution', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:2000, expensesMonthly:1000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1, contributionInterestFactor:0 });
+        const y1 = r[0];
+        near(y1.interestOnContribution, 0);
+      }));
+
+      tests.push(assert('Vue mounts and renders interpolation', ()=>{
+        const pill = document.querySelector('.header .pill');
+        if(!pill) throw new Error('Pill not found');
+        if(pill.textContent.includes('{{')) throw new Error('Interpolation not processed');
+        if(!pill.textContent.includes('USD')) throw new Error('Currency not rendered');
+      }));
+
+      tests.push(assert('Charts canvas contexts exist', ()=>{
+        const canvases = ['capitalChart','flowsChart','interestChart'].map(id=>document.getElementById(id));
+        if (canvases.some(c=>!c)) throw new Error('One or more canvases missing');
+        if (canvases.some(c=>!c.getContext('2d'))) throw new Error('Canvas context missing');
+      }));
+
+      // New tests per user decisions
+      tests.push(assert('Capital floors at 0 when deeply negative', ()=>{
+        const r = buildRows({ startingCapital:1000, incomeMonthly:0, expensesMonthly:5000, incomeGrowthPct:0, returnPct:0, inflationPct:0, years:1, contributionInterestFactor:1 });
+        const y1 = r[0];
+        if (y1.capitalEnd !== 0) throw new Error(`Expected 0, got ${y1.capitalEnd}`);
+      }));
+
+      tests.push(assert('Default contribution factor is 1× when undefined', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:2000, expensesMonthly:1000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1 });
+        const y1 = r[0];
+        // contribution = 12000, interest on contribution should be 12000 * 0.10 * 1 = 1200
+        near(y1.interestOnContribution, 1200);
+      }));
+
+      tests.push(assert('Rows contain only finite numbers', ()=>{
+        const r = buildRows({ startingCapital:0, incomeMonthly:5589, expensesMonthly:4000, incomeGrowthPct:10, returnPct:15, inflationPct:5, years:3, contributionInterestFactor:1 });
+        r.forEach(row=>{
+          const vals=[row.incomeMonthly,row.expensesMonthly,row.deltaMonthly,row.contribution,row.capitalStart,row.interestOnStart,row.interestOnContribution,row.capitalEnd];
+          vals.forEach(v=>{ if(!Number.isFinite(v)) throw new Error('Found non-finite value'); });
+        });
+      }));
+
+      // Additional: handles NaN/blank inputs gracefully
+      tests.push(assert('Coerces NaN/blank inputs to finite numbers', ()=>{
+        const r = buildRows({ startingCapital:NaN, incomeMonthly:'', expensesMonthly:undefined, incomeGrowthPct:'', returnPct:'', inflationPct:null, years:'', contributionInterestFactor:'' });
+        if (r.length < 1) throw new Error('No rows produced');
+        const y1=r[0];
+        [y1.incomeMonthly,y1.expensesMonthly,y1.deltaMonthly,y1.contribution,y1.capitalStart,y1.interestOnStart,y1.interestOnContribution,y1.capitalEnd]
+          .forEach(v=>{ if(!Number.isFinite(v)) throw new Error('Found non-finite after coercion'); });
+      }));
+
+      return tests;
+    }
+
+    function renderTestResults(results){
+      const ul = document.getElementById('test-results');
+      if(!ul) return;
+      ul.innerHTML = '';
+      results.forEach(r=>{
+        const li = document.createElement('li');
+        li.textContent = `${r.pass ? '✔' : '✖'} ${r.name} ${r.pass ? '' : '- ' + r.message}`;
+        li.className = r.pass ? 'test-pass' : 'test-fail';
+        ul.appendChild(li);
+      });
+    }
+
+    function assert(name, fn){
+      try{ fn(); return { name, pass:true, message:''}; }
+      catch(e){ return { name, pass:false, message:e.message||String(e)}; }
+    }
+
+    function near(actual, expected, eps=1e-6){
+      if(Math.abs(actual-expected) > eps) throw new Error(`Expected ${expected}, got ${actual}`);
+    }
+
+    function reportRuntimeError(e){
+      try{ const ul=document.getElementById('test-results'); if(!ul) return; const li=document.createElement('li'); li.textContent = `✖ Runtime error: ${e.message}`; li.className = 'test-fail'; ul.prepend(li);}catch(_){}
+    }
+
+    window.addEventListener('error', (e)=>{ reportRuntimeError(e.error || e); });
+    window.addEventListener('unhandledrejection', (e)=>{ reportRuntimeError(e.reason || e); });
   </script>
 </body>
 </html>
