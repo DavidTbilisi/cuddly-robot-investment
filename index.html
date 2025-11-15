@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Investment Projection Simulator — Table Only</title>
+  <title>Investment Projection Simulator — Table + One Chart</title>
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <style>
@@ -39,6 +39,17 @@
     details.tests summary{cursor:pointer;color:#93c5fd}
     .test-pass{color:#22c55e}
     .test-fail{color:#ef4444}
+    .help-link{color:#93c5fd;text-decoration:underline dotted}
+    .quick-help .help-list{margin:0;padding-left:18px}
+    .quick-help .help-list li{margin:4px 0}
+    .quick-help .tip{margin-top:8px}
+    /* One simple SVG chart */
+    .chart-wrap{margin-top:16px}
+    .chart-svg{width:100%;height:260px;display:block}
+    .chart-grid{stroke:rgba(255,255,255,0.08);stroke-width:1;shape-rendering:crispEdges}
+    .chart-line{fill:none;stroke:#22c55e;stroke-width:2.5}
+    .chart-axis{stroke:rgba(255,255,255,0.15);stroke-width:1}
+    .chart-label{font-size:11px;fill:#94a3b8}
   </style>
 </head>
 <body>
@@ -51,6 +62,21 @@
         <button class="btn" @click="downloadCSV">Download CSV</button>
       </div>
     </div>
+
+    <details class="card quick-help" id="how-to-use">
+      <summary>Quick start</summary>
+      <ol class="help-list">
+        <li id="help-starting-capital"><strong>Starting Capital</strong> — your current investable assets at year 0.</li>
+        <li id="help-income-monthly"><strong>Monthly Income (now)</strong> — current average gross income per month.</li>
+        <li id="help-expenses-monthly"><strong>Monthly Expenses (now)</strong> — current average monthly expenses.</li>
+        <li id="help-income-growth"><strong>Income Growth / year (%)</strong> — expected annual income growth (nominal).</li>
+        <li id="help-return"><strong>Investment Return / year (%)</strong> — expected portfolio return (nominal).</li>
+        <li id="help-inflation"><strong>Inflation / year (%)</strong> — applies to expenses each year.</li>
+        <li id="help-years"><strong>Projection Years</strong> — how many years to simulate.</li>
+        <li id="help-contrib-factor"><strong>Interest on current-year contributions</strong> — 0× (end), 0.5× (mid-year), 1× (start). Default 1×.</li>
+      </ol>
+      <div class="subtle tip">Tips: CSV exports raw numbers. Capital is floored at 0 (no borrowing). Change any input and the table + chart update instantly.</div>
+    </details>
 
     <div class="grid">
       <!-- Controls -->
@@ -100,10 +126,10 @@
         </div>
       </div>
 
-      <!-- Table Only -->
+      <!-- Table -->
       <div class="card" style="margin-top:0">
         <h3 style="margin-top:0">Projection Table</h3>
-        <div class="subtle" style="margin-bottom:8px">All values are annualized where noted. Interest uses simple annual accrual. Charts are disabled in this mode.</div>
+        <div class="subtle" style="margin-bottom:8px">All values are annualized where noted. Interest uses simple annual accrual.</div>
         <table>
           <thead>
             <tr>
@@ -133,6 +159,25 @@
           </tbody>
         </table>
       </div>
+
+      <!-- One Chart (SVG, no external libs) -->
+      <div class="card chart-wrap">
+        <h3 style="margin-top:0">Final Capital — Line Chart</h3>
+        <svg id="capitalSvg" class="chart-svg" :viewBox="'0 0 ' + svgWidth + ' ' + svgHeight" preserveAspectRatio="none">
+          <!-- grid lines -->
+          <line class="chart-grid" :x1="padding" :x2="svgWidth - padding" :y1="svgHeight - padding" :y2="svgHeight - padding" />
+          <line class="chart-grid" :x1="padding" :x2="svgWidth - padding" :y1="padding" :y2="padding" />
+          <!-- axes -->
+          <line class="chart-axis" :x1="padding" :x2="padding" :y1="padding" :y2="svgHeight - padding" />
+          <line class="chart-axis" :x1="padding" :x2="svgWidth - padding" :y1="svgHeight - padding" :y2="svgHeight - padding" />
+          <!-- labels -->
+          <text class="chart-label" :x="padding" :y="padding - 6">{{ maxLabel }}</text>
+          <text class="chart-label" :x="padding" :y="svgHeight - padding + 14">{{ minLabel }}</text>
+          <!-- series -->
+          <path class="chart-line" :d="pathD"></path>
+        </svg>
+        <div class="subtle">Showing: Final capital by year ({{ rows.length }} years)</div>
+      </div>
     </div>
 
     <details class="tests card" style="margin-top:16px">
@@ -143,7 +188,7 @@
 
   <script>
     'use strict';
-    const { createApp, watch, ref, computed } = Vue;
+    const { createApp, watch, ref, computed, onMounted } = Vue;
 
     function formatCurrency(x, currency){
       const f = new Intl.NumberFormat(undefined,{ style:'currency', currency: currency || 'USD', maximumFractionDigits: 0});
@@ -161,12 +206,40 @@
           returnPct: 15,
           inflationPct: 5,
           years: 30,
-          contributionInterestFactor: 1, // default 1× per user request
+          contributionInterestFactor: 1,
         });
 
         const rows = computed(()=>buildRows(params.value));
 
-        watch(params, ()=>{ /* table auto-updates via computed */ }, {deep:true});
+        // --- SVG chart reactive state ---
+        const svgWidth = ref(800);
+        const svgHeight = ref(260);
+        const padding = 32;
+
+        const minVal = computed(()=> Math.min(0, ...rows.value.map(r=>r.capitalEnd)) );
+        const maxVal = computed(()=> Math.max(1, ...rows.value.map(r=>r.capitalEnd)) );
+        const maxLabel = computed(()=> formatCurrency(maxVal.value, currency.value));
+        const minLabel = computed(()=> formatCurrency(minVal.value, currency.value));
+
+        const pathD = computed(()=> makePath(rows.value, svgWidth.value, svgHeight.value, padding, minVal.value, maxVal.value));
+
+        function resizeSvg(){
+          const el = document.getElementById('capitalSvg');
+          if(!el) return;
+          const w = el.clientWidth || el.parentElement?.clientWidth || 800;
+          if (Number.isFinite(w) && w > 0) svgWidth.value = w;
+        }
+
+        onMounted(()=>{
+          resizeSvg();
+          window.addEventListener('resize', resizeSvg);
+          // run tests after mount so DOM is ready
+          const results = runTests();
+          renderTestResults(results);
+          if (console && console.table) console.table(results.map(r=>({name:r.name, pass:r.pass, message:r.message})));
+        });
+
+        watch(rows, ()=>{ /* updates path via computed */ });
 
         function resetToDefaults(){
           params.value = { startingCapital: 0, incomeMonthly: 5589, expensesMonthly: 4000, incomeGrowthPct: 10, returnPct: 15, inflationPct: 5, years: 30, contributionInterestFactor: 1 };
@@ -191,13 +264,13 @@
           URL.revokeObjectURL(url);
         }
 
-        return { params, rows, resetToDefaults, fmt, currency, downloadCSV };
+        return { params, rows, resetToDefaults, fmt, currency, downloadCSV, svgWidth, svgHeight, padding, pathD, maxLabel, minLabel };
       }
     }).mount('#app');
 
+    // ------------------ math & helpers ------------------
     function buildRows(p){
       const rows=[];
-      // Robust coercion helpers
       const toFinite = (v, fb=0)=>{ const n = Number(v); return Number.isFinite(n) ? n : fb; };
       const toPct = (v)=> toFinite(v)/100;
 
@@ -208,7 +281,6 @@
       const r = toPct(p.returnPct);
       const infl = toPct(p.inflationPct);
       const years = Math.max(1, Math.min(60, Math.floor(toFinite(p.years, 1))));
-      // Default factor 1× if null/undefined/empty; otherwise coerce
       const k = (p.contributionInterestFactor==null || p.contributionInterestFactor==='') ? 1 : toFinite(p.contributionInterestFactor, 0);
 
       for(let y=1;y<=years;y++){
@@ -219,7 +291,7 @@
         const interestOnContribution = contribution * r * k;
 
         let capitalEnd = capitalStart + contribution + interestOnStart + interestOnContribution;
-        if (capitalEnd < 0) capitalEnd = 0; // floor at 0 per user request
+        if (capitalEnd < 0) capitalEnd = 0; // floor at 0
 
         rows.push({
           year:y,
@@ -233,7 +305,6 @@
           capitalEnd: round2(capitalEnd)
         });
 
-        // Next year updates
         capitalStart = capitalEnd;
         incomeMonthly = incomeMonthly * (1 + gIncome);
         expensesMonthly = expensesMonthly * (1 + infl);
@@ -243,9 +314,21 @@
 
     function round2(x){ return Math.round((x + Number.EPSILON) * 100) / 100; }
 
-    // ------------------
-    // Developer Test Kit (kept; chart tests replaced with table-only checks)
-    // ------------------
+    function makePath(rows, width, height, pad, minY, maxY){
+      const n = rows.length;
+      if(n === 0) return '';
+      const W = width - 2*pad; const H = height - 2*pad;
+      const xAt = (i)=> pad + (n===1 ? 0 : (i/(n-1))*W);
+      const range = (maxY - minY);
+      const yAtVal = (v)=> pad + H * (1 - (range ? (v - minY)/range : 0));
+      let d = `M ${xAt(0)} ${yAtVal(rows[0].capitalEnd)}`;
+      for(let i=1;i<n;i++){
+        d += ` L ${xAt(i)} ${yAtVal(rows[i].capitalEnd)}`;
+      }
+      return d;
+    }
+
+    // ------------------ Tests ------------------
     function runTests(){
       const tests = [];
 
@@ -265,7 +348,7 @@
         near(y1.capitalEnd, expectCapitalEnd);
       }));
 
-      // Test 2: Negative delta causes withdrawals (now floored at 0)
+      // Test 2: Negative delta withdraws from capital (floored at 0)
       tests.push(assert('Negative delta withdraws from capital', ()=>{
         const r = buildRows({ startingCapital:5000, incomeMonthly:1000, expensesMonthly:2000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1, contributionInterestFactor:0.5 });
         const y1 = r[0];
@@ -307,9 +390,14 @@
         if(!pill.textContent.includes('USD')) throw new Error('Currency not rendered');
       }));
 
-      tests.push(assert('No chart canvases present (table-only mode)', ()=>{
-        const canvases = document.querySelectorAll('canvas');
-        if (canvases.length !== 0) throw new Error('Found unexpected canvas elements');
+      tests.push(assert('SVG chart present and valid path', ()=>{
+        const svg = document.getElementById('capitalSvg');
+        if(!svg) throw new Error('SVG not found');
+        const path = svg.querySelector('path');
+        if(!path) throw new Error('Path not found');
+        const d = path.getAttribute('d') || '';
+        if(d.length < 10) throw new Error('Empty path');
+        if(/NaN|Infinity/.test(d)) throw new Error('Path contains invalid numbers');
       }));
 
       tests.push(assert('Capital floors at 0 when deeply negative', ()=>{
@@ -321,7 +409,6 @@
       tests.push(assert('Default contribution factor is 1× when undefined', ()=>{
         const r = buildRows({ startingCapital:0, incomeMonthly:2000, expensesMonthly:1000, incomeGrowthPct:0, returnPct:10, inflationPct:0, years:1 });
         const y1 = r[0];
-        // contribution = 12000, interest on contribution should be 12000 * 0.10 * 1 = 1200
         near(y1.interestOnContribution, 1200);
       }));
 
@@ -339,6 +426,26 @@
         const y1=r[0];
         [y1.incomeMonthly,y1.expensesMonthly,y1.deltaMonthly,y1.contribution,y1.capitalStart,y1.interestOnStart,y1.interestOnContribution,y1.capitalEnd]
           .forEach(v=>{ if(!Number.isFinite(v)) throw new Error('Found non-finite after coercion'); });
+      }));
+
+      tests.push(assert('Help sections present', ()=>{
+        const ids=[
+          '#help-starting-capital','#help-income-monthly','#help-expenses-monthly',
+          '#help-income-growth','#help-return','#help-inflation','#help-years','#help-contrib-factor'
+        ];
+        ids.forEach(sel=>{ if(!document.querySelector(sel)) throw new Error(`Missing help section: ${sel}`); });
+      }));
+
+      tests.push(assert('Labels have no inline help links', ()=>{
+        const links = document.querySelectorAll('.controls .field label a');
+        if(links.length>0) throw new Error('Found anchor tags inside labels');
+      }));
+
+      tests.push(assert('Quick start is foldable', ()=>{
+        const det = document.getElementById('how-to-use');
+        if(!det || det.tagName.toLowerCase() !== 'details') throw new Error('Quick start is not a <details>');
+        const sum = det.querySelector('summary');
+        if(!sum) throw new Error('Quick start has no <summary>');
       }));
 
       return tests;
