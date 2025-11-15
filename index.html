@@ -90,6 +90,108 @@
         </div>
       </div>
 
+      <!-- 50/30/20 Strategy Recommendations -->
+      <div class="card strategy-card">
+        <h3 style="margin-top:0">💰 1 Million Goal - 50/30/20 Strategy</h3>
+        <div class="strategy-explanation">
+          <p><strong>50/30/20 Rule:</strong> Allocate 50% for needs, 30% for wants, 20% for savings/investments</p>
+        </div>
+
+        <div class="strategy-grid">
+          <div class="current-analysis">
+            <h4>📊 Current Status</h4>
+            <div class="metric-row">
+              <span class="metric-label">Current Savings Rate:</span>
+              <span class="metric-value" :class="currentSavingsRate >= 20 ? 'good' : 'needs-improvement'">
+                {{ Math.round(currentSavingsRate) }}%
+              </span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Years to $1M (current rate):</span>
+              <span class="metric-value">
+                {{ yearsToMillionCurrent > 100 ? '100+' : Math.round(yearsToMillionCurrent) }} years
+              </span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Final Capital (30 years):</span>
+              <span class="metric-value">
+                {{ fmt(finalCapital30Years) }}
+              </span>
+            </div>
+          </div>
+
+          <div class="recommendations">
+            <h4>🎯 50/30/20 Recommendations</h4>
+            <div class="metric-row">
+              <span class="metric-label">Recommended Monthly Income:</span>
+              <span class="metric-value recommended">
+                {{ fmt(recommendedIncome) }}
+              </span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Max Monthly Expenses (80%):</span>
+              <span class="metric-value">
+                {{ fmt(recommendedExpenses) }}
+              </span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Monthly Investment (20%):</span>
+              <span class="metric-value investment">
+                {{ fmt(recommendedInvestment) }}
+              </span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-label">Years to $1M (20% rate):</span>
+              <span class="metric-value target">
+                {{ yearsToMillionTarget }} years
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="strategy-actions">
+          <button class="btn strategy-btn" @click="applyFiftyThirtyTwenty" :disabled="!canApplyStrategy">
+            🎯 Apply 50/30/20 Strategy
+          </button>
+          <button class="btn secondary strategy-btn" @click="optimizeForMillion">
+            ⚡ Optimize for $1M Goal
+          </button>
+          <span class="strategy-note" v-if="!canApplyStrategy">
+            Current income too low for 50/30/20 strategy with $1M goal in reasonable timeframe
+          </span>
+        </div>
+
+        <div class="strategy-breakdown">
+          <h4>📈 Strategic Breakdown</h4>
+          <div class="breakdown-grid">
+            <div class="breakdown-item needs">
+              <div class="breakdown-header">
+                <span class="percentage">50%</span>
+                <span class="category">Needs</span>
+              </div>
+              <div class="amount">{{ fmt(recommendedIncome * 0.5) }}</div>
+              <div class="description">Housing, food, utilities, minimum debt payments</div>
+            </div>
+            <div class="breakdown-item wants">
+              <div class="breakdown-header">
+                <span class="percentage">30%</span>
+                <span class="category">Wants</span>
+              </div>
+              <div class="amount">{{ fmt(recommendedIncome * 0.3) }}</div>
+              <div class="description">Entertainment, dining out, hobbies, subscriptions</div>
+            </div>
+            <div class="breakdown-item savings">
+              <div class="breakdown-header">
+                <span class="percentage">20%</span>
+                <span class="category">Savings</span>
+              </div>
+              <div class="amount">{{ fmt(recommendedIncome * 0.2) }}</div>
+              <div class="description">Emergency fund + investments for wealth building</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Multi-Metric Overview Chart -->
       <div class="card chart-wrap">
         <div class="chart-toolbar">
@@ -100,11 +202,11 @@
             <option value="column">Column Chart</option>
             <option value="combo">Combo Chart</option>
           </select>
-          
+
           <label><input type="checkbox" v-model="showMultipleMetrics" /> Multi-Metric View</label>
           <label><input type="checkbox" v-model="showPoints" /> Show Points</label>
           <label><input type="checkbox" v-model="enableZoom" /> Enable Zoom</label>
-          
+
           <div class="metric-toggles" v-if="showMultipleMetrics">
             <label v-for="opt in metricOptions" :key="opt.value">
               <input type="checkbox" v-model="activeMetrics" :value="opt.value" /> {{ opt.label }}
@@ -118,7 +220,15 @@
           </div>
         </div>
         <div id="main-chart" class="gchart" :data-draws="chartDraws"></div>
-        <div class="subtle">Interactive chart with multiple visualization options • Hover for detailed tooltips</div>
+        <div class="chart-description">
+          <p><strong>Main Investment Projection Chart:</strong> This interactive chart displays your selected financial
+            metrics over time. Use the controls above to switch between different chart types (line, area, column,
+            combo) and toggle multi-metric view to compare multiple indicators simultaneously.</p>
+          <p><strong>Key Features:</strong> Enable zoom to focus on specific time periods, show points for precise data
+            visualization, and hover over any data point for detailed tooltips with exact values. The multi-metric view
+            allows you to overlay different measurements like capital growth, contributions, and interest earnings for
+            comprehensive analysis.</p>
+        </div>
       </div>
 
       <!-- Capital Growth Breakdown Chart -->
@@ -135,7 +245,18 @@
           <div id="breakdown-chart" class="gchart-half"></div>
           <div id="pie-chart" class="gchart-half"></div>
         </div>
-        <div class="subtle">Left: Growth sources over time • Right: Composition for selected year</div>
+        <div class="chart-description">
+          <p><strong>Capital Growth Source Analysis:</strong> These complementary charts break down where your wealth
+            comes from each year.</p>
+          <p><strong>Left Chart - Growth Sources Timeline:</strong> Shows how different components contribute to your
+            capital growth over time. Toggle 'Stacked View' to see cumulative contributions or unstacked to compare
+            individual growth sources. The four components are: Starting Capital (red), Annual Contributions (blue),
+            Interest on Existing Capital (orange), and Interest on New Contributions (purple).</p>
+          <p><strong>Right Chart - Year-Specific Breakdown:</strong> A pie chart showing the composition of capital
+            sources for your selected focus year. This helps you understand what percentage of your wealth comes from
+            initial capital, ongoing contributions, and compound interest effects. Use the year selector to explore
+            different time periods.</p>
+        </div>
       </div>
 
       <!-- Financial Flow Analysis -->
@@ -149,7 +270,18 @@
           <div id="cashflow-chart" class="gchart-half"></div>
           <div id="ratios-chart" class="gchart-half"></div>
         </div>
-        <div class="subtle">Left: Income vs Expenses trends • Right: Key financial ratios</div>
+        <div class="chart-description">
+          <p><strong>Financial Flow Analysis:</strong> Monitor your cash flow patterns and financial health indicators.
+          </p>
+          <p><strong>Left Chart - Cash Flow Trends:</strong> Displays your annualized income (green line), expenses (red
+            line), and net cash flow available for investment (blue columns). This combo chart helps you visualize how
+            your earning power and spending evolve over time, and how much you can consistently invest. Watch for the
+            gap between income and expenses—the wider it gets, the more you can invest.</p>
+          <p><strong>Right Chart - Financial Ratios:</strong> Three key performance indicators: Savings Rate (green)
+            shows what percentage of income you save, Capital Growth Rate (orange) indicates your year-over-year wealth
+            increase, and Expense Ratio (red) tracks spending as a percentage of income. Higher savings rates and lower
+            expense ratios generally indicate better financial discipline.</p>
+        </div>
       </div>
 
       <!-- Performance Analytics -->
@@ -164,7 +296,22 @@
           </select>
         </div>
         <div id="performance-chart" class="gchart"></div>
-        <div class="subtle">Advanced performance metrics and trend analysis</div>
+        <div class="chart-description">
+          <p><strong>Performance Analytics Dashboard:</strong> Deep-dive into your investment performance with advanced
+            metrics.</p>
+          <p><strong>Return Analysis Mode:</strong> Breaks down your total investment returns into capital returns (from
+            existing assets) and contribution returns (from new investments). This helps you understand how much growth
+            comes from your initial capital versus ongoing contributions.</p>
+          <p><strong>Growth Rates Mode:</strong> Shows year-over-year percentage changes in capital, income, and
+            expenses. Look for consistent capital growth rates and income growth that outpaces expense growth for
+            optimal wealth building.</p>
+          <p><strong>Capital Efficiency Mode:</strong> Measures how effectively your money works for you. Capital
+            Efficiency shows return per dollar invested, ROI displays your return on investment percentage, and Payback
+            Period indicates how long it takes for investment returns to recover your initial capital.</p>
+          <div class="performance-tip"><strong>💡 Tip:</strong> Use these metrics to evaluate different scenarios—higher
+            contribution rates, different return assumptions, or varying expense levels—to optimize your investment
+            strategy.</div>
+        </div>
       </div>
 
       <!-- Table -->
