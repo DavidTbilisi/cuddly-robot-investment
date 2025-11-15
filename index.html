@@ -90,19 +90,81 @@
         </div>
       </div>
 
-      <!-- Google Chart directly under inputs -->
+      <!-- Multi-Metric Overview Chart -->
       <div class="card chart-wrap">
         <div class="chart-toolbar">
-          <label for="metric"><strong>Metric</strong></label>
-          <select id="metric" v-model="metric" @input="metric = $event.target.value">
-            <option v-for="opt in metricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          <label for="chart-type"><strong>Chart Type</strong></label>
+          <select id="chart-type" v-model="chartType">
+            <option value="line">Line Chart</option>
+            <option value="area">Area Chart</option>
+            <option value="column">Column Chart</option>
+            <option value="combo">Combo Chart</option>
           </select>
-          <label><input type="checkbox" v-model="fillArea" /> Fill area</label>
-          <label><input type="checkbox" v-model="showPoints" /> Show points</label>
-          <span class="subtle">Metric: {{ metricLabel }}</span>
+          
+          <label><input type="checkbox" v-model="showMultipleMetrics" /> Multi-Metric View</label>
+          <label><input type="checkbox" v-model="showPoints" /> Show Points</label>
+          <label><input type="checkbox" v-model="enableZoom" /> Enable Zoom</label>
+          
+          <div class="metric-toggles" v-if="showMultipleMetrics">
+            <label v-for="opt in metricOptions" :key="opt.value">
+              <input type="checkbox" v-model="activeMetrics" :value="opt.value" /> {{ opt.label }}
+            </label>
+          </div>
+          <div v-else>
+            <label for="metric"><strong>Metric</strong></label>
+            <select id="metric" v-model="metric">
+              <option v-for="opt in metricOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+          </div>
         </div>
-        <div id="gchart" class="gchart" :data-draws="chartDraws"></div>
-        <div class="subtle">Interactive Google Chart: hover for tooltips • switch metrics with the selector.</div>
+        <div id="main-chart" class="gchart" :data-draws="chartDraws"></div>
+        <div class="subtle">Interactive chart with multiple visualization options • Hover for detailed tooltips</div>
+      </div>
+
+      <!-- Capital Growth Breakdown Chart -->
+      <div class="card chart-wrap">
+        <div class="chart-toolbar">
+          <h4 style="margin:0">Capital Growth Sources</h4>
+          <label><input type="checkbox" v-model="showStackedView" /> Stacked View</label>
+          <label for="breakdown-year"><strong>Year Focus</strong></label>
+          <select id="breakdown-year" v-model="focusYear">
+            <option v-for="row in rows" :key="row.year" :value="row.year">Year {{ row.year }}</option>
+          </select>
+        </div>
+        <div class="chart-row">
+          <div id="breakdown-chart" class="gchart-half"></div>
+          <div id="pie-chart" class="gchart-half"></div>
+        </div>
+        <div class="subtle">Left: Growth sources over time • Right: Composition for selected year</div>
+      </div>
+
+      <!-- Financial Flow Analysis -->
+      <div class="card chart-wrap">
+        <div class="chart-toolbar">
+          <h4 style="margin:0">Financial Flow Analysis</h4>
+          <label><input type="checkbox" v-model="showCumulativeView" /> Cumulative View</label>
+          <label><input type="checkbox" v-model="showPercentages" /> Show as Percentages</label>
+        </div>
+        <div class="chart-row">
+          <div id="cashflow-chart" class="gchart-half"></div>
+          <div id="ratios-chart" class="gchart-half"></div>
+        </div>
+        <div class="subtle">Left: Income vs Expenses trends • Right: Key financial ratios</div>
+      </div>
+
+      <!-- Performance Analytics -->
+      <div class="card chart-wrap">
+        <div class="chart-toolbar">
+          <h4 style="margin:0">Performance Analytics</h4>
+          <label for="performance-metric"><strong>Focus</strong></label>
+          <select id="performance-metric" v-model="performanceMetric">
+            <option value="returns">Return Analysis</option>
+            <option value="growth">Growth Rates</option>
+            <option value="efficiency">Capital Efficiency</option>
+          </select>
+        </div>
+        <div id="performance-chart" class="gchart"></div>
+        <div class="subtle">Advanced performance metrics and trend analysis</div>
       </div>
 
       <!-- Table -->

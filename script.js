@@ -10,7 +10,7 @@ function formatCurrency(x, currency) {
   return f.format(x);
 }
 
-createApp({
+const vueApp = createApp({
   setup() {
     const currency = ref("USD");
     const params = ref({
@@ -26,135 +26,518 @@ createApp({
 
     const rows = computed(() => buildRows(params.value));
 
-    // ----- Google Charts state -----
+    // ----- Enhanced Charts state -----
     const showPoints = ref(true);
-    const fillArea = ref(true);
+    const chartType = ref('line');
+    const showMultipleMetrics = ref(false);
+    const activeMetrics = ref(['capitalEnd']);
+    const enableZoom = ref(true);
+    const showStackedView = ref(false);
+    const focusYear = ref(1);
+    const showCumulativeView = ref(false);
+    const showPercentages = ref(false);
+    const performanceMetric = ref('returns');
     const chartDraws = ref(0);
     const googleReady = ref(false);
-    let chart = null;
+    let charts = {}; // Store multiple chart instances
 
     const metricOptions = [
-      { value: "capitalEnd", label: "Final capital" },
-      { value: "contribution", label: "Annual contributions" },
-      { value: "interestTotal", label: "Total interest (start+contrib)" },
-      { value: "interestOnStart", label: "Interest on last year's capital" },
-      { value: "interestOnContribution", label: "Interest on contributions" },
+      { value: "capitalEnd", label: "Final Capital", color: "#22c55e" },
+      { value: "contribution", label: "Annual Contributions", color: "#3b82f6" },
+      { value: "interestTotal", label: "Total Interest", color: "#f59e0b" },
+      { value: "interestOnStart", label: "Interest on Capital", color: "#ef4444" },
+      { value: "interestOnContribution", label: "Interest on Contributions", color: "#8b5cf6" },
+      { value: "incomeMonthly", label: "Monthly Income", color: "#06b6d4" },
+      { value: "expensesMonthly", label: "Monthly Expenses", color: "#f97316" },
+      { value: "deltaMonthly", label: "Monthly Delta", color: "#84cc16" }
     ];
     const metric = ref("capitalEnd");
     const metricLabel = computed(
       () =>
         metricOptions.find((o) => o.value === metric.value)?.label || "Value"
     );
-
-    const values = computed(() => {
-      const r = rows.value;
-      switch (metric.value) {
-        case "contribution":
-          return r.map((x) => x.contribution);
-        case "interestTotal":
-          return r.map((x) => x.interestOnStart + x.interestOnContribution);
-        case "interestOnStart":
-          return r.map((x) => x.interestOnStart);
-        case "interestOnContribution":
-          return r.map((x) => x.interestOnContribution);
-        case "capitalEnd":
-        default:
-          return r.map((x) => x.capitalEnd);
+    
+    // Watch focusYear to update when rows change
+    watch(rows, (newRows) => {
+      if (newRows.length > 0 && !newRows.find(r => r.year === focusYear.value)) {
+        focusYear.value = newRows[0].year;
       }
-    });
+    }, { immediate: true });
 
-    function drawChart() {
-      try {
-        if (
-          !(window.google && window.google.visualization) ||
-          !googleReady.value
-        )
-          return;
-        const arr = [["Year", metricLabel.value]];
-        rows.value.forEach((r) => {
-          let v;
-          switch (metric.value) {
-            case "contribution":
-              v = r.contribution;
-              break;
-            case "interestTotal":
-              v = r.interestOnStart + r.interestOnContribution;
-              break;
-            case "interestOnStart":
-              v = r.interestOnStart;
-              break;
-            case "interestOnContribution":
-              v = r.interestOnContribution;
-              break;
-            case "capitalEnd":
-            default:
-              v = r.capitalEnd;
-              break;
-          }
-          arr.push([r.year, v]);
+    // Enhanced computed data for multiple charts
+    const chartData = computed(() => {
+      const r = rows.value;
+      return {
+        main: prepareMainChartData(r),
+        breakdown: prepareBreakdownData(r),
+        cashflow: prepareCashflowData(r),
+        ratios: prepareRatiosData(r),
+        performance: preparePerformanceData(r)
+      };
+    });
+    
+    function prepareMainChartData(rows) {
+      if (showMultipleMetrics.value) {
+        const headers = ['Year', ...activeMetrics.value.map(m => 
+          metricOptions.find(opt => opt.value === m)?.label || m
+        )];
+        const data = [headers];
+        rows.forEach(row => {
+          const rowData = [row.year];
+          activeMetrics.value.forEach(metric => {
+            rowData.push(getMetricValue(row, metric));
+          });
+          data.push(rowData);
         });
-        const data = google.visualization.arrayToDataTable(arr);
+        return data;
+      } else {
+        return [['Year', metricLabel.value], ...rows.map(r => 
+          [r.year, getMetricValue(r, metric.value)]
+        )];
+      }
+    }
+    
+    function getMetricValue(row, metric) {
+      switch (metric) {
+        case 'contribution': return row.contribution;
+        case 'interestTotal': return row.interestOnStart + row.interestOnContribution;
+        case 'interestOnStart': return row.interestOnStart;
+        case 'interestOnContribution': return row.interestOnContribution;
+        case 'incomeMonthly': return row.incomeMonthly;
+        case 'expensesMonthly': return row.expensesMonthly;
+        case 'deltaMonthly': return row.deltaMonthly;
+        case 'capitalEnd':
+        default: return row.capitalEnd;
+      }
+    }
+    
+    function prepareBreakdownData(rows) {
+      const headers = ['Year', 'Starting Capital', 'Contributions', 'Interest on Capital', 'Interest on Contributions'];
+      const data = [headers];
+      rows.forEach(row => {
+        data.push([
+          row.year,
+          row.capitalStart,
+          row.contribution,
+          row.interestOnStart,
+          row.interestOnContribution
+        ]);
+      });
+      return data;
+    }
+    
+    function prepareCashflowData(rows) {
+      const headers = ['Year', 'Income', 'Expenses', 'Net Flow'];
+      const data = [headers];
+      rows.forEach(row => {
+        data.push([
+          row.year,
+          row.incomeMonthly * 12, // Annualized
+          row.expensesMonthly * 12, // Annualized
+          row.deltaMonthly * 12 // Annualized net flow
+        ]);
+      });
+      return data;
+    }
+    
+    function prepareRatiosData(rows) {
+      const headers = ['Year', 'Savings Rate (%)', 'Capital Growth Rate (%)', 'Expense Ratio (%)'];
+      const data = [headers];
+      rows.forEach(row => {
+        const savingsRate = row.incomeMonthly > 0 ? (row.deltaMonthly / row.incomeMonthly) * 100 : 0;
+        const growthRate = row.capitalStart > 0 ? 
+          ((row.capitalEnd - row.capitalStart) / row.capitalStart) * 100 : 0;
+        const expenseRatio = row.incomeMonthly > 0 ? (row.expensesMonthly / row.incomeMonthly) * 100 : 0;
+        
+        data.push([
+          row.year,
+          Math.round(savingsRate * 100) / 100,
+          Math.round(growthRate * 100) / 100,
+          Math.round(expenseRatio * 100) / 100
+        ]);
+      });
+      return data;
+    }
+    
+    function preparePerformanceData(rows) {
+      let headers, data;
+      
+      switch (performanceMetric.value) {
+        case 'returns':
+          headers = ['Year', 'Total Return', 'Capital Return', 'Contribution Return'];
+          data = [headers];
+          rows.forEach(row => {
+            data.push([
+              row.year,
+              row.interestOnStart + row.interestOnContribution,
+              row.interestOnStart,
+              row.interestOnContribution
+            ]);
+          });
+          break;
+        case 'growth':
+          headers = ['Year', 'Capital Growth', 'Income Growth', 'Expense Growth'];
+          data = [headers];
+          rows.forEach((row, index) => {
+            if (index === 0) {
+              data.push([row.year, 0, 0, 0]);
+            } else {
+              const prevRow = rows[index - 1];
+              const capitalGrowth = ((row.capitalEnd - prevRow.capitalEnd) / prevRow.capitalEnd) * 100;
+              const incomeGrowth = ((row.incomeMonthly - prevRow.incomeMonthly) / prevRow.incomeMonthly) * 100;
+              const expenseGrowth = ((row.expensesMonthly - prevRow.expensesMonthly) / prevRow.expensesMonthly) * 100;
+              
+              data.push([
+                row.year,
+                Math.round(capitalGrowth * 100) / 100,
+                Math.round(incomeGrowth * 100) / 100,
+                Math.round(expenseGrowth * 100) / 100
+              ]);
+            }
+          });
+          break;
+        case 'efficiency':
+          headers = ['Year', 'Capital Efficiency', 'ROI (%)', 'Payback Period'];
+          data = [headers];
+          rows.forEach(row => {
+            const efficiency = row.contribution > 0 ? row.capitalEnd / (row.contribution + row.capitalStart || 1) : 0;
+            const roi = row.capitalStart > 0 ? ((row.capitalEnd - row.capitalStart) / row.capitalStart) * 100 : 0;
+            const payback = row.deltaMonthly > 0 ? row.capitalStart / (row.deltaMonthly * 12) : 0;
+            
+            data.push([
+              row.year,
+              Math.round(efficiency * 100) / 100,
+              Math.round(roi * 100) / 100,
+              Math.round(payback * 100) / 100
+            ]);
+          });
+          break;
+        default:
+          return prepareMainChartData(rows);
+      }
+      
+      return data;
+    }
+
+    // Comprehensive chart rendering system
+    function drawAllCharts() {
+      if (!window.google?.visualization || !googleReady.value) return;
+      
+      try {
+        drawMainChart();
+        drawBreakdownCharts();
+        drawCashflowCharts();
+        drawPerformanceChart();
+        
+        // Increment and update draw count immediately
+        chartDraws.value++;
+        const mainEl = document.getElementById('main-chart');
+        if (mainEl) {
+          mainEl.setAttribute('data-draws', String(chartDraws.value));
+        }
+        
+        console.log('Charts drawn, count:', chartDraws.value, 'at', new Date().getTime());
+      } catch (e) {
+        console.error('Chart rendering error:', e);
+      }
+    }
+    
+    function drawMainChart() {
+      const element = document.getElementById('main-chart');
+      if (!element) return;
+      
+      const data = google.visualization.arrayToDataTable(chartData.value.main);
+      
+      const baseOptions = {
+        backgroundColor: 'transparent',
+        hAxis: {
+          title: 'Year',
+          textStyle: { color: '#94a3b8' },
+          gridlines: { color: '#22314b' },
+        },
+        vAxis: {
+          textStyle: { color: '#94a3b8' },
+          gridlines: { color: '#22314b' },
+          format: 'currency'
+        },
+        chartArea: { left: 80, top: 20, right: 40, bottom: 60 },
+        tooltip: { 
+          isHtml: true,
+          trigger: 'both'
+        },
+        crossfilter: { enabled: enableZoom.value },
+        explorer: enableZoom.value ? {
+          actions: ['dragToZoom', 'rightClickToReset'],
+          axis: 'horizontal',
+          keepInBounds: true
+        } : undefined
+      };
+      
+      if (showMultipleMetrics.value) {
+        baseOptions.legend = { position: 'top', textStyle: { color: '#94a3b8' } };
+        baseOptions.series = {};
+        activeMetrics.value.forEach((metricValue, index) => {
+          const metricConfig = metricOptions.find(opt => opt.value === metricValue);
+          baseOptions.series[index] = {
+            color: metricConfig?.color || `hsl(${index * 60}, 70%, 50%)`,
+            pointSize: showPoints.value ? 4 : 0
+          };
+        });
+      } else {
+        baseOptions.legend = { position: 'none' };
+        const metricConfig = metricOptions.find(opt => opt.value === metric.value);
+        baseOptions.series = {
+          0: { 
+            color: metricConfig?.color || '#22c55e',
+            pointSize: showPoints.value ? 4 : 0
+          }
+        };
+      }
+      
+      let ChartConstructor;
+      switch (chartType.value) {
+        case 'area':
+          ChartConstructor = google.visualization.AreaChart;
+          if (showMultipleMetrics.value) {
+            activeMetrics.value.forEach((_, index) => {
+              baseOptions.series[index].areaOpacity = 0.3;
+            });
+          } else {
+            baseOptions.series[0].areaOpacity = 0.3;
+          }
+          break;
+        case 'column':
+          ChartConstructor = google.visualization.ColumnChart;
+          break;
+        case 'combo':
+          ChartConstructor = google.visualization.ComboChart;
+          baseOptions.seriesType = 'line';
+          if (showMultipleMetrics.value && activeMetrics.value.length > 1) {
+            baseOptions.series[0].type = 'columns';
+          }
+          break;
+        case 'line':
+        default:
+          ChartConstructor = google.visualization.LineChart;
+          break;
+      }
+      
+      if (!charts.main || !(charts.main instanceof ChartConstructor)) {
+        charts.main = new ChartConstructor(element);
+      }
+      
+      charts.main.draw(data, baseOptions);
+    }
+    
+    function drawBreakdownCharts() {
+      // Stacked area chart for capital growth sources
+      const breakdownEl = document.getElementById('breakdown-chart');
+      if (breakdownEl) {
+        const data = google.visualization.arrayToDataTable(chartData.value.breakdown);
         const options = {
-          backgroundColor: "transparent",
-          legend: { position: "none" },
+          backgroundColor: 'transparent',
+          legend: { position: 'top', textStyle: { color: '#94a3b8' } },
+          isStacked: showStackedView.value,
           hAxis: {
-            title: "Year",
-            textStyle: { color: "#94a3b8" },
-            gridlines: { color: "#22314b" },
+            title: 'Year',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
           },
           vAxis: {
-            title: metricLabel.value,
-            textStyle: { color: "#94a3b8" },
-            gridlines: { color: "#22314b" },
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' },
+            format: 'currency'
           },
-          chartArea: { left: 56, top: 16, right: 16, bottom: 40 },
-          pointSize: showPoints.value ? 3 : 0,
+          chartArea: { left: 60, top: 40, right: 20, bottom: 50 },
           series: {
-            0: { color: "#22c55e", areaOpacity: fillArea.value ? 0.25 : 0 },
-          },
-          tooltip: { isHtml: false },
-        };
-        const el = document.getElementById("gchart");
-        if (!el) return;
-        const Ctor = fillArea.value
-          ? google.visualization.AreaChart
-          : google.visualization.LineChart;
-        if (!chart || !(chart instanceof Ctor)) chart = new Ctor(el);
-        chart.draw(data, options);
-        chartDraws.value++;
-        // Reflect the current draw count into the DOM attribute for tests
-        try {
-          const el2 = document.getElementById("gchart");
-          if (el2) {
-            el2.setAttribute("data-draws", String(chartDraws.value));
+            0: { color: '#ef4444' }, // Starting Capital
+            1: { color: '#3b82f6' }, // Contributions  
+            2: { color: '#f59e0b' }, // Interest on Capital
+            3: { color: '#8b5cf6' }  // Interest on Contributions
           }
-        } catch (_) {}
-      } catch (e) {
-        console.error("Chart draw error", e);
+        };
+        
+        if (!charts.breakdown) {
+          charts.breakdown = new google.visualization.AreaChart(breakdownEl);
+        }
+        charts.breakdown.draw(data, options);
+      }
+      
+      // Pie chart for selected year composition
+      const pieEl = document.getElementById('pie-chart');
+      if (pieEl && rows.value.length > 0) {
+        const focusRow = rows.value.find(r => r.year === focusYear.value) || rows.value[0];
+        const pieData = [
+          ['Source', 'Amount'],
+          ['Starting Capital', focusRow.capitalStart],
+          ['Contributions', Math.max(0, focusRow.contribution)],
+          ['Interest on Capital', focusRow.interestOnStart],
+          ['Interest on Contributions', focusRow.interestOnContribution]
+        ].filter(row => row[0] === 'Source' || row[1] > 0);
+        
+        const data = google.visualization.arrayToDataTable(pieData);
+        const options = {
+          backgroundColor: 'transparent',
+          legend: { position: 'right', textStyle: { color: '#94a3b8' } },
+          chartArea: { left: 20, top: 20, right: 100, bottom: 20 },
+          colors: ['#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6'],
+          pieSliceText: 'percentage',
+          pieSliceTextStyle: { color: '#ffffff' },
+          title: `Year ${focusYear.value} Capital Sources`,
+          titleTextStyle: { color: '#e5e7eb' }
+        };
+        
+        if (!charts.pie) {
+          charts.pie = new google.visualization.PieChart(pieEl);
+        }
+        charts.pie.draw(data, options);
+      }
+    }
+    
+    function drawCashflowCharts() {
+      // Income vs Expenses chart
+      const cashflowEl = document.getElementById('cashflow-chart');
+      if (cashflowEl) {
+        const data = google.visualization.arrayToDataTable(chartData.value.cashflow);
+        const options = {
+          backgroundColor: 'transparent',
+          legend: { position: 'top', textStyle: { color: '#94a3b8' } },
+          hAxis: {
+            title: 'Year',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
+          },
+          vAxis: {
+            title: 'Annual Amount',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' },
+            format: 'currency'
+          },
+          chartArea: { left: 80, top: 40, right: 20, bottom: 50 },
+          series: {
+            0: { color: '#22c55e', type: 'line' }, // Income
+            1: { color: '#ef4444', type: 'line' }, // Expenses
+            2: { color: '#3b82f6', type: 'columns' } // Net Flow
+          },
+          seriesType: 'line'
+        };
+        
+        if (!charts.cashflow) {
+          charts.cashflow = new google.visualization.ComboChart(cashflowEl);
+        }
+        charts.cashflow.draw(data, options);
+      }
+      
+      // Financial ratios chart
+      const ratiosEl = document.getElementById('ratios-chart');
+      if (ratiosEl) {
+        const data = google.visualization.arrayToDataTable(chartData.value.ratios);
+        const options = {
+          backgroundColor: 'transparent',
+          legend: { position: 'top', textStyle: { color: '#94a3b8' } },
+          hAxis: {
+            title: 'Year',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
+          },
+          vAxis: {
+            title: 'Percentage (%)',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
+          },
+          chartArea: { left: 60, top: 40, right: 20, bottom: 50 },
+          series: {
+            0: { color: '#22c55e' }, // Savings Rate
+            1: { color: '#f59e0b' }, // Capital Growth Rate
+            2: { color: '#ef4444' }  // Expense Ratio
+          }
+        };
+        
+        if (!charts.ratios) {
+          charts.ratios = new google.visualization.LineChart(ratiosEl);
+        }
+        charts.ratios.draw(data, options);
+      }
+    }
+    
+    function drawPerformanceChart() {
+      const performanceEl = document.getElementById('performance-chart');
+      if (performanceEl) {
+        const data = google.visualization.arrayToDataTable(chartData.value.performance);
+        const options = {
+          backgroundColor: 'transparent',
+          legend: { position: 'top', textStyle: { color: '#94a3b8' } },
+          hAxis: {
+            title: 'Year',
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
+          },
+          vAxis: {
+            textStyle: { color: '#94a3b8' },
+            gridlines: { color: '#22314b' }
+          },
+          chartArea: { left: 80, top: 40, right: 40, bottom: 60 },
+          series: {
+            0: { color: '#22c55e' },
+            1: { color: '#3b82f6' },
+            2: { color: '#f59e0b' }
+          }
+        };
+        
+        // Adjust format based on performance metric
+        if (performanceMetric.value === 'returns') {
+          options.vAxis.format = 'currency';
+        } else {
+          options.vAxis.format = '#\'%\'';
+        }
+        
+        if (!charts.performance) {
+          charts.performance = new google.visualization.LineChart(performanceEl);
+        }
+        charts.performance.draw(data, options);
       }
     }
 
     onMounted(() => {
-      // Load Google Charts and draw when ready; run tests only after first draw
-      google.charts.load("current", { packages: ["corechart"] });
+      // Load Google Charts with all necessary packages
+      google.charts.load('current', { 
+        packages: ['corechart', 'controls'] 
+      });
       google.charts.setOnLoadCallback(() => {
         googleReady.value = true;
-        drawChart();
-        const results = runTests();
-        renderTestResults(results);
-        if (console && console.table)
-          console.table(
-            results.map((r) => ({
-              name: r.name,
-              pass: r.pass,
-              message: r.message,
-            }))
-          );
+        drawAllCharts();
+        
+        // Run tests after first draw (with async support)
+        runTests().then(results => {
+          renderTestResults(results);
+          if (console?.table) {
+            console.table(
+              results.map((r) => ({
+                name: r.name,
+                pass: r.pass,
+                message: r.message,
+              }))
+            );
+          }
+        }).catch(console.error);
       });
-      window.addEventListener("resize", drawChart);
+      
+      // Responsive chart redrawing
+      window.addEventListener('resize', () => {
+        setTimeout(drawAllCharts, 100);
+      });
     });
 
-    watch([rows, metric, showPoints, fillArea], () => drawChart());
+    // Enhanced watchers for all chart options
+    watch([
+      rows, metric, chartType, showMultipleMetrics, activeMetrics,
+      showPoints, enableZoom, showStackedView, focusYear,
+      showCumulativeView, showPercentages, performanceMetric
+    ], () => {
+      if (googleReady.value) {
+        drawAllCharts();
+      }
+    }, { deep: true });
 
     function resetToDefaults() {
       params.value = {
@@ -224,11 +607,22 @@ createApp({
       metricOptions,
       metricLabel,
       showPoints,
-      fillArea,
+      chartType,
+      showMultipleMetrics,
+      activeMetrics,
+      enableZoom,
+      showStackedView,
+      focusYear,
+      showCumulativeView,
+      showPercentages,
+      performanceMetric,
       chartDraws,
     };
   },
-}).mount("#app");
+});
+
+// Mount the app and expose it globally for testing
+window.vueApp = vueApp.mount("#app");
 
 // ------------------ math & helpers ------------------
 function buildRows(p) {
@@ -286,7 +680,7 @@ function round2(x) {
 }
 
 // ------------------ Tests ------------------
-function runTests() {
+async function runTests() {
   const tests = [];
 
   tests.push(
@@ -408,30 +802,45 @@ function runTests() {
   // Google chart tests (replace old SVG tests)
   tests.push(
     assert("Google Charts container exists", () => {
-      const el = document.getElementById("gchart");
-      if (!el) throw new Error("gchart div missing");
+      const el = document.getElementById("main-chart");
+      if (!el) throw new Error("main-chart div missing");
     })
   );
 
   tests.push(
     assert("Google chart draws at least once on load", () => {
-      const el = document.getElementById("gchart");
+      const el = document.getElementById("main-chart");
       const draws = Number(el.getAttribute("data-draws") || "0");
       if (!(draws > 0)) throw new Error("draw count did not increment");
     })
   );
 
   tests.push(
-    assert("Metric selector exists and triggers redraw", () => {
-      const el = document.getElementById("gchart");
+    assert("Metric selector exists and triggers redraw", async () => {
+      const el = document.getElementById("main-chart");
       const before = Number(el.getAttribute("data-draws") || "0");
       const sel = document.getElementById("metric");
       if (!sel) throw new Error("Metric selector missing");
+      
+      // Trigger Vue change event properly
+      const originalValue = sel.value;
       sel.value = "contribution";
+      // Trigger both input and change events to ensure Vue reactivity
       sel.dispatchEvent(new Event("input", { bubbles: true }));
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+      
+      // Also manually trigger Vue reactivity by accessing the Vue instance if possible
+      if (window.vueApp && window.vueApp.$data) {
+        // Force Vue reactivity update
+        window.vueApp.$nextTick && window.vueApp.$nextTick();
+      }
+      
+      // Wait for Vue reactivity and chart redraw
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
       const after = Number(el.getAttribute("data-draws") || "0");
       if (!(after > before))
-        throw new Error("draw count did not increase after metric change");
+        throw new Error(`draw count did not increase: ${before} -> ${after}`);
     })
   );
 
@@ -536,33 +945,42 @@ function runTests() {
   );
 
   tests.push(
-    assert("Changing contribution assumption does not change metric", () => {
+    assert("Changing contribution assumption does not change metric", async () => {
       const metricEl = document.getElementById("metric");
       if (!metricEl) throw new Error("Metric selector missing");
       const beforeMetric = metricEl.value;
+      // Find the contribution factor select element specifically
       const contribSel = Array.from(document.querySelectorAll("select")).find(
-        (s) => s !== metricEl
+        (s) => s.querySelector('option[value="0"]') && s.querySelector('option[value="0.5"]') && s.querySelector('option[value="1"]')
       );
       if (!contribSel) throw new Error("Contribution factor select not found");
       const prev = Number(
-        document.getElementById("gchart").getAttribute("data-draws") || "0"
+        document.getElementById("main-chart").getAttribute("data-draws") || "0"
       );
+      
+      // Trigger the contribution factor change
       contribSel.value = "0.5";
       contribSel.dispatchEvent(new Event("change", { bubbles: true }));
+      
+      // Wait for Vue reactivity and chart redraw
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const afterMetric = metricEl.value;
       if (afterMetric !== beforeMetric)
         throw new Error("Metric changed when contribution factor changed");
       const afterDraws = Number(
-        document.getElementById("gchart").getAttribute("data-draws") || "0"
+        document.getElementById("main-chart").getAttribute("data-draws") || "0"
       );
       if (!(afterDraws > prev))
         throw new Error(
-          "Chart did not redraw after contribution factor change"
+          `Chart did not redraw after contribution factor change: ${prev} -> ${afterDraws}`
         );
     })
   );
 
-  return tests;
+  // Wait for all async tests to complete
+  const resolvedTests = await Promise.all(tests);
+  return resolvedTests;
 }
 
 function renderTestResults(results) {
@@ -581,8 +999,16 @@ function renderTestResults(results) {
 
 function assert(name, fn) {
   try {
-    fn();
-    return { name, pass: true, message: "" };
+    const result = fn();
+    if (result && typeof result.then === 'function') {
+      // Handle async test functions
+      return result.then(
+        () => ({ name, pass: true, message: "" }),
+        (e) => ({ name, pass: false, message: e.message || String(e) })
+      );
+    } else {
+      return { name, pass: true, message: "" };
+    }
   } catch (e) {
     return { name, pass: false, message: e.message || String(e) };
   }

@@ -186,9 +186,49 @@ details.tests summary {
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
+.chart-toolbar h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+}
+.metric-toggles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: 12px;
+}
+.metric-toggles label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chart-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
 .gchart {
   width: 100%;
   height: 320px;
+}
+.gchart-half {
+  width: 100%;
+  height: 280px;
+}
+@media (max-width: 768px) {
+  .chart-row {
+    grid-template-columns: 1fr;
+  }
+  .chart-toolbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .metric-toggles {
+    margin-left: 0;
+  }
 }
 .tooltip {
   position: absolute;
